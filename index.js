@@ -1,51 +1,96 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const bodyParser = require('body-parser');
-//const user = require('./models/User_Model');
-const app = express();
+var express = require('express');
+var cors = require('cors');
+var bodyParser = require('body-parser');
+var mongoose = require('mongoose');
+var User = require('./models/User');
+var jwt = require('jsonwebtoken');
+require('dotenv').config();
 
-// Middleware
+var app = express();
+
+// using cors
 app.use(cors());
+
+// body parser
 app.use(bodyParser.json());
 
-// MongoDB Connection
-mongoose.connect('mongodb+srv://anik3:241326@cluster0.akftd.mongodb.net/Cluster0?retryWrites=true&w=majority', {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-})
-.then(() => console.log('Connected to MongoDB'))
-.catch(err => console.error('Could not connect to MongoDB', err));
-
-const userSchema = new mongoose.Schema({
-    email: String,
-    pass: String,
-});
-
-const User = mongoose.model('users', userSchema);
-
-app.get('/', (req, res) => {
-    res.send('Hello World');
-});
-
-app.get('/users', async (req, res) => {
-  try {
-      const users = await User.find();  
-      res.json(users);  
-  } catch (error) {
-      res.status(500).json({ message: 'Error fetching users', error });
-  }
-});
-
-app.get('/users', async (req, res) => {
-    try {
-        const users = await User.find();
-        res.json(users);
-    } catch (error) {
-        res.status(500).json({ message: 'Error fetching users', error });
+// database connection
+mongoose.connect(process.env.MONGO_URI, {useNewUrlParser: true, useUnifiedTopology: true}, function(err) {
+    if (err) {
+        console.log("DB connection failed!!");
+        console.log(err);
+    } else {
+        console.log("DB connected!");
     }
 });
 
-// Start Server
-const PORT = 3000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+// register
+app.post('/register', function(req, res) {
+    var userData = req.body;
+    
+    var newUser = new User({
+        name: userData.name,
+        email: userData.email,
+        pass: userData.pass
+    });
+
+    newUser.save(function(err) {
+        if (err) {
+            res.status(400).send("Error saving user: " + err);
+        } else {
+            res.status(201).send("User created");
+        }
+    });
+});
+
+// login
+app.post('/login', function(req, res) {
+    var email = req.body.email;
+    var password = req.body.pass;
+
+    User.findOne({email: email}, function(err, user) {
+        if (err) {
+            return res.status(400).send("Error finding user");
+        }
+        
+        if (!user || user.pass !== password) {
+            return res.status(401).send("Wrong email or password!!");
+        }
+
+        var token = jwt.sign({
+            id: user._id,
+            email: user.email
+        }, process.env.JWT_SECRET, {expiresIn: '1h'});
+
+        res.json({token: token});
+    });
+});
+
+// get users
+app.get('/users', function(req, res) {
+    var token = req.headers['authorization'];
+    
+    if (!token) {
+        return res.status(403).send("Need a token!!");
+    }
+
+    jwt.verify(token, process.env.JWT_SECRET, function(err, decoded) {
+        if (err) {
+            return res.status(403).send("Bad or old token!!");
+        }
+        
+        User.find({}, function(err, users) {
+            if (err) {
+                res.status(400).send("Error getting users: " + err);
+            } else {
+                res.json(users);
+            }
+        });
+    });
+});
+
+// start server
+var PORT = 3000;
+app.listen(PORT, function() {
+    console.log("Server is working on port " + PORT);
+});
